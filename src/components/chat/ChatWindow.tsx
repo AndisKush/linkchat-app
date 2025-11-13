@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import type { ClientSummary } from '../../pages/Chat';
-import { api } from '../../services/api';
-import { socket } from '../../services/socket';
+import { useEffect, useState, useRef } from "react";
+import type { ClientSummary } from "../../pages/Chat";
+import { api } from "../../services/api";
+import { socket } from "../../services/socket";
 
 // Tipo da mensagem vinda da API
 type Message = {
@@ -9,6 +9,7 @@ type Message = {
   fromMe: boolean;
   body: string;
   createdAt: string;
+  client?: string;
 };
 
 type ChatWindowProps = {
@@ -18,8 +19,10 @@ type ChatWindowProps = {
 export function ChatWindow({ client }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [currentMessage, setCurrentMessage] = useState('');
+  const [currentMessage, setCurrentMessage] = useState("");
   const [isSuggesting, setIsSuggesting] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Função para buscar o histórico de chat
   async function fetchMessages() {
@@ -28,48 +31,64 @@ export function ChatWindow({ client }: ChatWindowProps) {
       const response = await api.get<Message[]>(`/chat/${client._id}/messages`);
       setMessages(response.data);
     } catch (err) {
-      console.error('Erro ao buscar mensagens:', err);
+      console.error("Erro ao buscar mensagens:", err);
     } finally {
       setIsLoading(false);
     }
   }
 
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
   // Busca o histórico quando o cliente muda
   useEffect(() => {
     fetchMessages();
-    
+
     // Ouvinte para novas mensagens (WebSocket)
     const handleNewMessage = (newMessage: Message) => {
       // Adiciona a nova mensagem se ela for deste cliente
-      setMessages((prevMessages) => [...prevMessages, newMessage]);
+      if (newMessage.client === client._id) {
+        setMessages((prevMessages) => [...prevMessages, newMessage]);
+      }
     };
-    
-    socket.on('new_message', handleNewMessage);
-    
+
+    socket.on("new_message", handleNewMessage);
+
     return () => {
-      socket.off('new_message', handleNewMessage);
+      socket.off("new_message", handleNewMessage);
     };
   }, [client._id]);
-  
+
   // Função para ENVIAR mensagem
   async function handleSend() {
-    if (currentMessage.trim() === '') return;
-    
+    if (currentMessage.trim() === "") return;
+
+    const tempMessageId = Date.now().toString(); 
+    const optimisticMessage: Message = {
+      _id: tempMessageId,
+      fromMe: true,
+      body: currentMessage,
+      createdAt: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setCurrentMessage("");
+
     try {
       // 1. Envia para a API (que envia para o Wpp e salva no DB)
-      const response = await api.post<Message>(`/chat/send/${client._id}`, {
+      await api.post<Message>(`/chat/send/${client._id}`, {
         body: currentMessage,
       });
-      
-      // 2. Adiciona a mensagem enviada à lista
-      setMessages((prev) => [...prev, response.data]);
-      setCurrentMessage('');
     } catch (err) {
-      console.error('Erro ao enviar mensagem:', err);
-      alert('Falha ao enviar mensagem.');
+      console.error("Erro ao enviar mensagem:", err);
+      setMessages((prev) => prev.filter((msg) => msg._id !== tempMessageId));
+      alert("Falha ao enviar mensagem.");
     }
   }
-  
+
   // Função para SUGERIR resposta (IA)
   async function handleSuggest() {
     setIsSuggesting(true);
@@ -80,8 +99,8 @@ export function ChatWindow({ client }: ChatWindowProps) {
       // Coloca a sugestão na caixa de texto
       setCurrentMessage(response.data.suggestion);
     } catch (err) {
-      console.error('Erro ao buscar sugestão:', err);
-      alert('Falha ao gerar sugestão.');
+      console.error("Erro ao buscar sugestão:", err);
+      alert("Falha ao gerar sugestão.");
     } finally {
       setIsSuggesting(false);
     }
@@ -97,29 +116,41 @@ export function ChatWindow({ client }: ChatWindowProps) {
           disabled={isSuggesting}
           className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 disabled:bg-gray-400"
         >
-          {isSuggesting ? 'Pensando...' : '🤖 Sugerir Resposta'}
+          {isSuggesting ? "Pensando..." : "🤖 Sugerir Resposta"}
         </button>
       </header>
 
       {/* Área de Mensagens */}
-      <main className="flex-1 p-4 overflow-y-auto space-y-3">
-        {isLoading && <p>Carregando histórico...</p>}
-        {messages.map(msg => (
-          <div 
+      <main className="flex-1 p-4 overflow-y-scroll space-y-3 relative">
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-75 z-10">
+            <svg
+              className="animate-spin h-8 w-8 text-blue-500"
+            />
+            <p className="ml-2">Carregando histórico...</p>
+          </div>
+        )}
+        {!isLoading && messages.length === 0 && (
+          <p className="text-center text-gray-500">
+            Início da conversa com {client.name}.
+          </p>
+        )}
+
+        {messages.map((msg) => (
+          <div
             key={msg._id}
-            className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}
+            className={`flex ${msg.fromMe ? "justify-end" : "justify-start"}`}
           >
-            <div 
+            <div
               className={`p-3 rounded-lg max-w-lg ${
-                msg.fromMe 
-                  ? 'bg-blue-500 text-white' 
-                  : 'bg-white shadow'
+                msg.fromMe ? "bg-blue-500 text-white" : "bg-white shadow"
               }`}
             >
               {msg.body}
             </div>
           </div>
         ))}
+        <div ref={messagesEndRef} />
       </main>
 
       {/* Input de Mensagem */}
