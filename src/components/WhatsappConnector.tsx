@@ -19,7 +19,9 @@ export function WhatsappConnector() {
     
     // Quando o componente desmontar (navegar para outra tela),
     // ele se "desinscreve"
-    return unsubscribe;
+    return () => {
+      unsubscribe;
+    }
   }, []); // Roda apenas uma vez
 
   return (

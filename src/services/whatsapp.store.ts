@@ -1,9 +1,15 @@
-import { socket } from './socket';
+import { socket } from "./socket";
 
-// 1. Onde vamos guardar o estado globalmente
-let currentState = {
-  status: 'Conectando ao servidor...',
-  qr: null as string | null,
+type WhatsappState = {
+  status: string;
+  qr: string | null;
+  isReady: boolean;
+};
+
+let currentState: WhatsappState = {
+  status: "Conectando ao servidor...",
+  qr: null,
+  isReady: false,
 };
 
 // 2. Uma lista de "ouvintes" (nossos componentes React)
@@ -15,44 +21,49 @@ function notify() {
 }
 
 // 4. Ouvir os eventos do socket UMA VEZ e atualizar o estado global
-socket.on('connect', () => {
-  currentState = { ...currentState, status: 'Servidor conectado. Aguardando WhatsApp...' };
+socket.on("connect", () => {
+  currentState = {
+    ...currentState,
+    status: "Servidor conectado. Aguardando WhatsApp...",
+    isReady: false,
+  };
   notify();
 });
 
-socket.on('disconnect', () => {
-  currentState = { ...currentState, status: 'Servidor desconectado.' };
+socket.on("disconnect", () => {
+  currentState = { status: "Servidor desconectado.", qr: null, isReady: false };
   notify();
 });
 
-socket.on('qr_code', (data: { qr: string }) => {
-  currentState = { status: 'Escaneie o QR Code para conectar!', qr: data.qr };
+socket.on("qr_code", (data: { qr: string }) => {
+  currentState = {
+    status: "Escaneie o QR Code para conectar!",
+    qr: data.qr,
+    isReady: false,
+  };
   notify();
 });
 
-socket.on('whatsapp_ready', (data: { message: string }) => {
-  currentState = { status: `🚀 ${data.message}`, qr: null };
+socket.on("whatsapp_ready", (data: { message: string }) => {
+  currentState = { status: `🚀 ${data.message}`, qr: null, isReady: true };
   notify();
 });
 
-socket.on('whatsapp_disconnected', (data: { message: string }) => {
-  currentState = { status: `🔌 ${data.message}`, qr: null };
+socket.on("whatsapp_disconnected", (data: { message: string }) => {
+  currentState = { status: `🔌 ${data.message}`, qr: null, isReady: false };
   notify();
 });
 
 // 5. O "serviço" que nossos componentes vão usar
 export const whatsappStore = {
-  // Permite que um componente se inscreva
-  subscribe(callback: (state: typeof currentState) => void) {
+  subscribe(callback: (state: WhatsappState) => void) {
     subscribers.add(callback);
-    callback(currentState); // Envia o estado atual imediatamente
-    
-    // Retorna a função de "limpeza" (unsubscribe)
-    return () => {subscribers.delete(callback)};
+    callback(currentState);
+
+    return () => subscribers.delete(callback);
   },
-  
-  // Permite que um componente pegue o estado atual (para o F5)
+
   getState() {
     return currentState;
-  }
+  },
 };
